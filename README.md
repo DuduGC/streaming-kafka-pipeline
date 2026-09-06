@@ -1,6 +1,6 @@
 # Streaming Kafka Pipeline
 
-Pipeline de eventos de reprodução construído como um MVP de portfólio. O projeto demonstra, de forma executável, como Docker Compose, Apache Kafka, Python e PostgreSQL trabalham juntos em um fluxo assíncrono:
+Pipeline de eventos de reprodução MVP. O projeto demonstra, de forma executável, como Docker Compose, Apache Kafka, Python e PostgreSQL trabalham juntos em um fluxo assíncrono:
 
 **Producer → Kafka → Consumer → PostgreSQL**
 
