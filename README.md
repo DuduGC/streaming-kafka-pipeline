@@ -4,7 +4,7 @@ Pipeline de eventos de reprodução MVP. O projeto demonstra, de forma executáv
 
 **Producer → Kafka → Consumer → PostgreSQL**
 
-O objetivo é mostrar fundamentos sólidos e explicáveis em uma entrevista, sem adicionar complexidade de arquitetura enterprise.
+O objetivo é mostrar fundamentos básicos de arquitetura de eventos que aprendi recentemente.
 
 ## Resultado
 
