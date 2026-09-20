@@ -1,20 +1,28 @@
 # Streaming Kafka Pipeline
 
-Pipeline de eventos de reprodução MVP. O projeto demonstra, de forma executável, como Docker Compose, Apache Kafka, Python e PostgreSQL trabalham juntos em um fluxo assíncrono:
+Este repositório contém um MVP de pipeline de eventos para uma plataforma de reprodução de vídeo ou áudio. O fluxo registra eventos como `PLAY`, `PAUSE`, `BUFFERING`, `ERROR` e `COMPLETE`, transporta cada evento pelo Kafka e grava o resultado no PostgreSQL.
+
+O projeto foi montado para praticar os fundamentos de streaming que aparecem em sistemas reais: comunicação assíncrona, particionamento, consumer groups, confirmação de offsets, persistência idempotente, execução em containers e controle de privilégios.
 
 **Producer → Kafka → Consumer → PostgreSQL**
 
-O objetivo é mostrar fundamentos básicos de arquitetura de eventos que aprendi recentemente.
-
 ## Resultado
 
-- Quatro serviços Docker: <code>producer</code>, <code>kafka</code>, <code>consumer</code> e <code>postgres</code>.
-- Topic <code>playback-events</code> com três partitions.
-- Message key <code>content_id</code>.
-- Consumer group <code>playback-events-consumer</code>.
-- Entrega at-least-once com commit manual.
-- Persistência idempotente por <code>event_id</code>.
-- Usuário PostgreSQL restrito para o Consumer.
+O ambiente executa quatro serviços Docker:
+
+- `producer`, que gera eventos sintéticos e os publica;
+- `kafka`, que transporta os eventos;
+- `consumer`, que valida, persiste e confirma o processamento;
+- `postgres`, que armazena os eventos processados.
+
+As decisões principais são:
+
+- topic `playback-events` com três partitions;
+- message key `content_id`;
+- consumer group `playback-events-consumer`;
+- entrega at-least-once com commit manual;
+- persistência idempotente por `event_id`;
+- usuário PostgreSQL restrito para o Consumer;
 - 41 testes locais e três testes de integração Docker aprovados.
 
 ## Arquitetura
@@ -35,7 +43,7 @@ flowchart LR
 | Consumer | Consome, desserializa, valida, persiste e confirma offsets. |
 | PostgreSQL | Armazena eventos processados e impede duplicação por chave primária. |
 
-Os serviços usam a rede bridge <code>pipeline</code>. Dentro dela, o Producer e o Consumer acessam <code>kafka:9092</code> e <code>postgres:5432</code>. <code>localhost</code> não é usado para comunicação entre containers, porque aponta para o próprio container.
+Os serviços compartilham a rede bridge `pipeline`. Dentro dela, o Producer e o Consumer usam `kafka:9092` e `postgres:5432`. `localhost` não serve para comunicação entre containers, pois aponta para o próprio container.
 
 ## O que foi implementado em cada etapa
 
@@ -45,8 +53,8 @@ Os serviços usam a rede bridge <code>pipeline</code>. Dentro dela, o Producer e
 | 2 | Docker Compose com Kafka em KRaft, PostgreSQL, rede, volume e healthchecks. |
 | 3 | Producer Python containerizado, eventos sintéticos, UUID, JSON, key e publicação idempotente do topic. |
 | 4 | Consumer Python containerizado, polling, desserialização, grupo, shutdown e commit manual. |
-| 5 | PostgreSQL com tabela <code>playback_events</code>, SQLAlchemy e persistência parametrizada. |
-| 6 | Validação do contrato, descarte consciente de mensagens inválidas e idempotência por <code>event_id</code>. |
+| 5 | PostgreSQL com tabela `playback_events`, SQLAlchemy e persistência parametrizada. |
+| 6 | Validação do contrato, descarte consciente de mensagens inválidas e idempotência por `event_id`. |
 | 7 | Testes unitários e integração real Producer → Kafka → Consumer → PostgreSQL. |
 | 8 | Revisão de partitions, key, provisionamento explícito, readiness, rede e offsets. |
 | 9 | Revisão de segurança: entrada, secrets, logs, containers e menor privilégio no PostgreSQL. |
@@ -63,7 +71,7 @@ Copy-Item .env.example .env
 notepad .env
 ~~~
 
-Substitua as senhas de exemplo. <code>POSTGRES_PASSWORD</code> e <code>POSTGRES_APP_PASSWORD</code> devem ser diferentes.
+Troque as senhas de exemplo. `POSTGRES_PASSWORD` e `POSTGRES_APP_PASSWORD` devem ser diferentes.
 
 2. Construa e inicie os quatro serviços:
 
@@ -90,7 +98,7 @@ docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB
 docker compose down
 ~~~
 
-O volume <code>postgres_data</code> mantém os dados entre reinicializações. <code>docker compose down -v</code> remove o volume e todos os eventos; use somente quando quiser começar do zero.
+O volume `postgres_data` mantém os dados entre reinicializações. `docker compose down -v` remove o volume e todos os eventos, portanto deve ser usado apenas quando a intenção for começar do zero.
 
 ## Contrato do evento
 
@@ -104,41 +112,41 @@ O volume <code>postgres_data</code> mantém os dados entre reinicializações. <
 }
 ~~~
 
-Tipos aceitos: <code>PLAY</code>, <code>PAUSE</code>, <code>BUFFERING</code>, <code>ERROR</code> e <code>COMPLETE</code>. Todos os dados gerados pelo Producer são sintéticos.
+Os tipos aceitos são `PLAY`, `PAUSE`, `BUFFERING`, `ERROR` e `COMPLETE`. O Producer gera apenas dados sintéticos.
 
-O Consumer valida:
+Antes de acessar o banco, o Consumer valida:
 
 - JSON UTF-8 de até 10.000 bytes;
 - os cinco campos obrigatórios;
 - strings não vazias e tipos básicos;
-- <code>event_id</code> como UUID;
-- <code>event_type</code> dentro do conjunto permitido;
+- `event_id` como UUID;
+- `event_type` dentro do conjunto permitido;
 - timestamp ISO-8601 em UTC;
-- <code>user_id</code> e <code>content_id</code> com até 100 caracteres;
+- `user_id` e `content_id` com até 100 caracteres;
 - ausência de NUL e de surrogates Unicode isolados.
 
-Uma mensagem inválida é registrada sem o payload, descartada conscientemente e confirmada. Não há DLQ neste MVP.
+Quando uma mensagem falha nessas regras, o sistema registra o motivo sem armazenar o payload, descarta a mensagem e confirma o offset. O MVP não possui DLQ.
 
 ## Kafka
 
 | Conceito | Decisão do projeto |
 |---|---|
 | Broker | Um broker Apache Kafka 4.2.1 em modo KRaft, sem ZooKeeper. |
-| Topic | <code>playback-events</code>, criado explicitamente pelo Producer. |
+| Topic | `playback-events`, criado explicitamente pelo Producer. |
 | Partitions | Três, suficientes para demonstrar distribuição e ordenação. |
 | Replication factor | Um, compatível com o broker único local. |
-| Message key | <code>content_id</code>, mantendo eventos do mesmo conteúdo na mesma partition. |
-| Consumer group | <code>playback-events-consumer</code>. |
+| Message key | `content_id`, mantendo eventos do mesmo conteúdo na mesma partition. |
+| Consumer group | `playback-events-consumer`. |
 | Offset | Confirmado manualmente depois de um resultado definitivo. |
 | Serialização | JSON UTF-8. |
 
-O Producer usa <code>acks=all</code>, idempotência do cliente e <code>AdminClient</code> para criar ou validar o topic. A criação automática indiscriminada está desabilitada.
+O Producer usa `acks=all`, idempotência do cliente e `AdminClient` para criar ou validar o topic. A criação automática indiscriminada fica desabilitada.
 
 ### At-least-once e idempotência
 
-O Consumer desativa auto-commit e auto-store. Primeiro persiste o evento; depois confirma o offset. Se o processo falhar entre essas duas ações, Kafka pode entregar a mesma mensagem novamente — essa é a semântica at-least-once.
+O Consumer desativa auto-commit e auto-store. Ele persiste o evento primeiro e confirma o offset depois. Se o processo cair nesse intervalo, Kafka pode entregar a mensagem novamente. Esse é o comportamento esperado da semântica at-least-once.
 
-<code>event_id</code> é a chave primária da tabela. O insert usa <code>ON CONFLICT (event_id) DO NOTHING</code>, então a reentrega é reconhecida como duplicata e não cria outra linha.
+`event_id` é a chave primária da tabela. O insert usa `ON CONFLICT (event_id) DO NOTHING`, por isso uma reentrega vira uma duplicata reconhecida e não cria outra linha.
 
 Para inspecionar o topic e o lag:
 
@@ -149,59 +157,59 @@ docker compose exec -T kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap
 
 ## Docker
 
-- Imagens oficiais fixadas: <code>apache/kafka:4.2.1</code>, <code>postgres:17.11-alpine3.24</code> e <code>python:3.13.15-slim-bookworm</code>.
+- Imagens oficiais fixadas: `apache/kafka:4.2.1`, `postgres:17.11-alpine3.24` e `python:3.13.15-slim-bookworm`.
 - Producer e Consumer usam Dockerfiles próprios, dependências controladas e usuário non-root UID 10001.
 - Kafka e PostgreSQL possuem healthchecks.
-- <code>depends_on</code> inicia Producer e Consumer somente após as dependências estarem saudáveis.
-- PostgreSQL usa o volume nomeado <code>postgres_data</code>.
+- `depends_on` inicia Producer e Consumer somente depois que as dependências ficam saudáveis.
+- PostgreSQL usa o volume nomeado `postgres_data`.
 - Nenhuma porta é publicada no host; a operação ocorre na rede interna.
-- <code>.dockerignore</code> exclui secrets, caches, testes e artefatos do contexto de build.
+- `.dockerignore` exclui secrets, caches, testes e artefatos do contexto de build.
 - O script de criação do papel da aplicação é montado como somente leitura.
 
-Healthcheck é uma verificação de disponibilidade, não um substituto para tratamento de erros: o Producer repete conexão com Kafka e o Consumer reposiciona a partition em falhas transitórias de persistência.
+Healthcheck informa se um serviço está disponível naquele momento. Ele não substitui o tratamento de erros: o Producer repete a conexão com Kafka e o Consumer reposiciona a partition quando uma falha transitória impede a persistência.
 
 ## PostgreSQL
 
-A tabela <code>playback_events</code> contém:
+A tabela `playback_events` contém:
 
 | Coluna | Regra |
 |---|---|
-| <code>event_id</code> | UUID, chave primária e proteção contra duplicação. |
-| <code>user_id</code> | Identificador sintético, <code>VARCHAR(100)</code>. |
-| <code>content_id</code> | Conteúdo sintético, <code>VARCHAR(100)</code>. |
-| <code>event_type</code> | Tipo permitido do evento. |
-| <code>event_timestamp</code> | Timestamp UTC produzido na origem. |
-| <code>processed_at</code> | Timestamp gerado pelo banco na persistência. |
+| `event_id` | UUID, chave primária e proteção contra duplicação. |
+| `user_id` | Identificador sintético, `VARCHAR(100)`. |
+| `content_id` | Conteúdo sintético, `VARCHAR(100)`. |
+| `event_type` | Tipo permitido do evento. |
+| `event_timestamp` | Timestamp UTC produzido na origem. |
+| `processed_at` | Timestamp gerado pelo banco na persistência. |
 
-O acesso é feito com SQLAlchemy 2.0 e parâmetros vinculados. Nenhum payload é concatenado em SQL.
+O acesso usa SQLAlchemy 2.0 e parâmetros vinculados. Nenhum payload é concatenado em SQL.
 
 O PostgreSQL separa as identidades:
 
-- <code>POSTGRES_USER</code> e <code>POSTGRES_PASSWORD</code>: bootstrap administrativo do banco;
-- <code>POSTGRES_APP_USER</code> e <code>POSTGRES_APP_PASSWORD</code>: papel de runtime do Consumer.
+- `POSTGRES_USER` e `POSTGRES_PASSWORD`: bootstrap administrativo do banco;
+- `POSTGRES_APP_USER` e `POSTGRES_APP_PASSWORD`: papel de runtime do Consumer.
 
-O papel do Consumer recebe somente conexão no banco, uso do schema, <code>INSERT</code> na tabela e leitura de <code>event_id</code>, necessária para resolver <code>ON CONFLICT (event_id)</code>. O script <code>database/002-create-app-role.sh</code> é idempotente e também pode migrar um volume já existente sem apagar dados.
+O papel do Consumer recebe somente conexão no banco, uso do schema, `INSERT` na tabela e leitura de `event_id`, necessária para resolver `ON CONFLICT (event_id)`. O script `database/002-create-app-role.sh` é idempotente e também pode migrar um volume já existente sem apagar dados.
 
 ## Configuração
 
-Copie <code>.env.example</code> para <code>.env</code>. O arquivo <code>.env</code> é ignorado e não deve ser enviado ao GitHub.
+Copie `.env.example` para `.env`. O arquivo `.env` é ignorado e não deve ser enviado ao GitHub.
 
 | Variável | Usada por | Finalidade |
 |---|---|---|
-| <code>POSTGRES_DB</code> | PostgreSQL, Consumer | Banco de eventos. |
-| <code>POSTGRES_USER</code> | PostgreSQL | Usuário administrativo de bootstrap. |
-| <code>POSTGRES_PASSWORD</code> | PostgreSQL | Senha administrativa local. |
-| <code>POSTGRES_APP_USER</code> | PostgreSQL, Consumer | Usuário restrito da aplicação. |
-| <code>POSTGRES_APP_PASSWORD</code> | PostgreSQL, Consumer | Senha exclusiva da aplicação. |
-| <code>POSTGRES_HOST</code> / <code>POSTGRES_PORT</code> | Consumer | <code>postgres:5432</code> na rede Docker. |
-| <code>KAFKA_BOOTSTRAP_SERVERS</code> | Producer, Consumer | <code>kafka:9092</code> na rede Docker. |
-| <code>KAFKA_TOPIC</code> | Producer, Consumer | <code>playback-events</code>. |
-| <code>KAFKA_TOPIC_PARTITIONS</code> | Producer | Três partitions esperadas. |
-| <code>KAFKA_CONSUMER_GROUP</code> | Consumer | Grupo de consumo. |
-| <code>PRODUCER_INTERVAL_SECONDS</code> | Producer | Intervalo entre eventos. |
-| <code>LOG_LEVEL</code> | Producer, Consumer | Nível de logging. |
+| `POSTGRES_DB` | PostgreSQL, Consumer | Banco de eventos. |
+| `POSTGRES_USER` | PostgreSQL | Usuário administrativo de bootstrap. |
+| `POSTGRES_PASSWORD` | PostgreSQL | Senha administrativa local. |
+| `POSTGRES_APP_USER` | PostgreSQL, Consumer | Usuário restrito da aplicação. |
+| `POSTGRES_APP_PASSWORD` | PostgreSQL, Consumer | Senha exclusiva da aplicação. |
+| `POSTGRES_HOST` / `POSTGRES_PORT` | Consumer | `postgres:5432` na rede Docker. |
+| `KAFKA_BOOTSTRAP_SERVERS` | Producer, Consumer | `kafka:9092` na rede Docker. |
+| `KAFKA_TOPIC` | Producer, Consumer | `playback-events`. |
+| `KAFKA_TOPIC_PARTITIONS` | Producer | Três partitions esperadas. |
+| `KAFKA_CONSUMER_GROUP` | Consumer | Grupo de consumo. |
+| `PRODUCER_INTERVAL_SECONDS` | Producer | Intervalo entre eventos. |
+| `LOG_LEVEL` | Producer, Consumer | Nível de logging. |
 
-Configurações essenciais usam validação fail-fast. Para um volume antigo que ainda não possui o papel restrito:
+As configurações essenciais usam validação fail-fast. Para um volume antigo que ainda não possui o papel restrito:
 
 ~~~powershell
 docker compose exec -T postgres sh /docker-entrypoint-initdb.d/002-create-app-role.sh
@@ -212,23 +220,23 @@ docker compose up -d --build consumer
 
 | Risco combatido | Controle implementado |
 |---|---|
-| Senha ou secret exposto no código | Credenciais ficam em variáveis de ambiente; <code>.env</code> é ignorado e <code>.env.example</code> usa placeholders. |
-| Comprometimento do Consumer com privilégio de cluster | Bootstrap administrativo separado do papel de runtime, que não possui <code>SUPERUSER</code>, <code>CREATEDB</code>, <code>CREATEROLE</code> ou <code>REPLICATION</code>. |
+| Senha ou secret exposto no código | Credenciais ficam em variáveis de ambiente; `.env` é ignorado e `.env.example` usa placeholders. |
+| Comprometimento do Consumer com privilégio de cluster | Bootstrap administrativo separado do papel de runtime, que não possui `SUPERUSER`, `CREATEDB`, `CREATEROLE` ou `REPLICATION`. |
 | Mensagem Kafka venenosa bloqueando uma partition | Limites de tamanho, tipos, UUID, NUL e Unicode inválido são verificados antes do banco; mensagens determinísticas inválidas são descartadas e confirmadas. |
 | SQL injection ou alteração de query por payload | SQLAlchemy usa parâmetros vinculados; não há concatenação de valores de eventos. |
 | Container Python com privilégios do host | Producer e Consumer executam como usuário non-root. |
 | Exposição acidental de broker ou banco | Nenhuma porta é publicada no host; serviços usam somente a rede interna. |
 | Vazamento através de logs | Logs registram metadados operacionais, sem payload completo, senha ou connection string. |
-| Build contaminado por arquivos locais | <code>.dockerignore</code> exclui <code>.env</code>, caches, IDEs, logs, testes e artefatos. |
-| Dependência de serviço ainda indisponível | Healthchecks e <code>depends_on</code> condicionado à saúde das dependências. |
+| Build contaminado por arquivos locais | `.dockerignore` exclui `.env`, caches, IDEs, logs, testes e artefatos. |
+| Dependência de serviço ainda indisponível | Healthchecks e `depends_on` condicionado à saúde das dependências. |
 
 ## Logging
 
-O código usa o módulo Python <code>logging</code>, nunca <code>print()</code>, para registrar:
+O código usa o módulo Python `logging`, nunca `print()`, para registrar:
 
 - conexão e shutdown;
 - publicação com topic, partition e offset;
-- recebimento e persistência por <code>event_id</code>;
+- recebimento e persistência por `event_id`;
 - duplicatas ignoradas;
 - mensagens inválidas;
 - falhas de conexão ou persistência.
@@ -298,7 +306,7 @@ Resultado final: **3 testes aprovados**:
 
 ## Status final
 
-Todas as dez etapas foram concluídas:
+As dez etapas foram concluídas:
 
 1. Arquitetura e estrutura mínima.
 2. Docker Compose.
